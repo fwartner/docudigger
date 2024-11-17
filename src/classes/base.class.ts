@@ -1,19 +1,16 @@
 import { Command, Flags, Interfaces } from '@oclif/core';
 import winston from 'winston';
-import { createLogger } from './helpers/logger.helper';
-import { LogLevel } from './loglevel';
-import { parseBool } from './helpers/parse-bool.helper';
-import { exitListener } from './helpers/exit.helper';
+import { createLogger } from '../helpers/logger.helper';
+import { LogLevel } from '../loglevel';
+import { parseBool } from '../helpers/parse-bool.helper';
+import { exitListener } from '../helpers/exit.helper';
 
-
-export type Flags<T extends typeof Command> = Interfaces.InferredFlags<typeof BaseCommand[`baseFlags`] & T[`flags`]>
-export type Args<T extends typeof Command> = Interfaces.InferredArgs<T[`args`]>
+export type BaseFlags<T extends typeof Command> = Interfaces.InferredFlags<typeof BaseCommand[`baseFlags`] & T[`flags`]>
+export type BaseArgs<T extends typeof Command> = Interfaces.InferredArgs<T[`args`]>
 
 export abstract class BaseCommand<T extends typeof Command> extends Command {
-    // add the --json flag
     static enableJsonFlag = true;
     public abstract pluginName: string;
-
 
     protected logger: winston.Logger = null;
 
@@ -22,34 +19,39 @@ export abstract class BaseCommand<T extends typeof Command> extends Command {
         logLevel: Flags.custom<LogLevel>({
             summary: `Specify level for logging.`,
             options: Object.values(LogLevel),
-            default: LogLevel.info
+            default: LogLevel.info,
+            env: `LOG_LEVEL`,
         })(),
 
         debug: Flags.boolean({ char: `d`, default: true, env: `DEBUG`, parse: parseBool  }),
         logPath: Flags.string({ char: `l`, description: `Log path`, default: `./logs/`, env: `LOG_PATH` }),
         recurring: Flags.boolean({ char: `r`, default: true, env: `RECURRING`, parse: parseBool  }),
-        recurringCron: Flags.string(({ char: `c`, description: `Cron pattern to execute periodically`, env: `RECURRING_PATTERN`, default: `* * * * *`, dependsOn: [`recurring`] }))
+        recurringCron: Flags.string(({ char: `c`, description: `Cron pattern to execute periodically`, env: `RECURRING_PATTERN`, default: `*/30 * * * *`, dependsOn: [`recurring`] }))
 
     };
 
-    protected flags!: Flags<T>;
+    protected flags!: BaseFlags<T>;
 
     public async init(): Promise<void> {
         await super.init();
+        await this.initFlags();
 
+        this.logger = createLogger(this.flags?.logLevel || LogLevel.info, this.flags?.logPath || `./logs/`, this.id);
+        this.logger.debug(`Command ${this.id} initialized`);
+        this.logger.debug(`Flags: ${JSON.stringify(this.flags)}`);
+        exitListener(this.logger);
+        return Promise.resolve();
+    }
+
+    protected async initFlags(){
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { args, flags } = await this.parse({
             flags: this.ctor.flags,
             baseFlags: (super.ctor as typeof BaseCommand).baseFlags,
             args: this.ctor.args,
             strict: this.ctor.strict,
         });
-        this.flags = flags as Flags<T>;
-
-        this.logger = createLogger(this.flags?.logLevel || LogLevel.info, this.flags?.logPath || `./logs/`, this.id);
-        exitListener(this.logger);
-
-
-        // this.logger.info(`Got flags for plugin ${this.id} -> ${JSON.stringify(flags, null, 4)}`);
+        this.flags = flags as BaseFlags<T>;
     }
 
     protected async catch(err: Error & { exitCode?: number }): Promise<unknown> {
